@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MUSAB // RUN</title>
+<style>
+  :root {
+    --ink: #0b0c0f;
+    --panel: #15171c;
+    --bone: #eae6db;
+    --grey: #6b6f76;
+    --amber: #d98e2b;
+  }
+  html, body {
+    margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: var(--ink);
+    font-family: 'Space Grotesk', 'Segoe UI', sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    touch-action: manipulation;
+  }
+  @font-face {
+    font-family: 'Space Grotesk';
+    src: local('Space Grotesk');
+  }
+  #wrap { position: relative; }
+  canvas {
+    background: linear-gradient(var(--panel), var(--ink) 65%);
+    display: block;
+    border: 1px solid rgba(217,142,43,0.35);
+  }
+  #score {
+    position: absolute; top: 14px; left: 16px;
+    color: var(--bone); font-size: 20px; font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  #mult {
+    position: absolute; top: 40px; left: 16px;
+    color: var(--amber); font-size: 12px; font-weight: 600;
+    letter-spacing: 0.08em; opacity: 0; transition: opacity 0.15s;
+  }
+  #best {
+    position: absolute; top: 14px; right: 16px;
+    color: var(--grey); font-size: 12px; letter-spacing: 0.08em;
+  }
+  #overlay {
+    position: absolute; inset: 0;
+    display: none; flex-direction: column; align-items: center; justify-content: center;
+    background: rgba(11,12,15,0.88); color: var(--bone); text-align: center;
+  }
+  #overlay h1 {
+    font-size: 26px; margin: 0 0 6px; color: var(--amber);
+    letter-spacing: 0.04em; font-weight: 700; text-transform: uppercase;
+  }
+  #overlay p { margin: 4px 0 18px; font-size: 14px; color: var(--grey); }
+  .btnrow { display: flex; gap: 10px; }
+  button {
+    font-family: inherit; font-weight: 600; letter-spacing: 0.03em;
+    border: none; padding: 11px 24px; font-size: 14px;
+    border-radius: 3px; cursor: pointer;
+  }
+  #restart { background: var(--amber); color: var(--ink); }
+  #restart:hover { background: #c17f22; }
+  #share { background: transparent; color: var(--bone); border: 1px solid var(--grey); }
+  #share:hover { border-color: var(--amber); color: var(--amber); }
+  #shareMsg {
+    position: absolute; bottom: 66px; left: 0; right: 0;
+    text-align: center; font-size: 11px; color: var(--amber);
+    letter-spacing: 0.06em; opacity: 0; transition: opacity 0.2s;
+  }
+  #brand {
+    position: absolute; bottom: 10px; left: 0; right: 0;
+    text-align: center; color: var(--grey); font-size: 10px; letter-spacing: 0.15em;
+  }
+  #brand b { color: var(--amber); }
+  #start {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: var(--bone); text-align: center; background: rgba(11,12,15,0.55);
+  }
+  #start h1 {
+    color: var(--bone); font-size: 15px; letter-spacing: 0.35em;
+    font-weight: 400; margin-bottom: 4px; text-transform: uppercase;
+  }
+  #start .by { color: var(--amber); font-size: 11px; letter-spacing: 0.2em; margin-bottom: 20px; }
+  #start .go { font-size: 22px; font-weight: 700; letter-spacing: 0.08em; margin-bottom: 8px; }
+  #start p { margin: 4px 0; font-size: 13px; color: var(--grey); }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game" width="800" height="320"></canvas>
+  <div id="score">0</div>
+  <div id="mult">×2 BOOST</div>
+  <div id="best">BEST 0</div>
+  <div id="start">
+    <div class="by">MUSAB</div>
+    <div class="go">TAP / SPACE TO RUN</div>
+    <p>Jump gaps · duck bars · grab amber orbs for a score boost</p>
+  </div>
+  <div id="overlay">
+    <h1>Run Over</h1>
+    <p id="finalScore"></p>
+    <div class="btnrow">
+      <button id="restart">Restart</button>
+      <button id="share">Share</button>
+    </div>
+  </div>
+  <div id="shareMsg">LINK COPIED</div>
+  <div id="brand">A <b>MUSAB</b> PRODUCTION</div>
+</div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+const groundY = H - 50;
+
+const COL = {
+  ink: '#0b0c0f', panel: '#15171c', bone: '#eae6db', grey: '#6b6f76', amber: '#d98e2b'
+};
+
+const scoreEl = document.getElementById('score');
+const multEl = document.getElementById('mult');
+const bestEl = document.getElementById('best');
+const overlay = document.getElementById('overlay');
+const startScreen = document.getElementById('start');
+const finalScoreEl = document.getElementById('finalScore');
+const restartBtn = document.getElementById('restart');
+const shareBtn = document.getElementById('share');
+const shareMsg = document.getElementById('shareMsg');
+
+let best = Number(localStorage.getItem('musabRunnerBest') || 0);
+bestEl.textContent = 'BEST ' + best;
+
+let state = 'ready';
+
+const STAND_H = 52, DUCK_H = 30, PW = 26;
+const player = {
+  x: 90, y: groundY, vy: 0,
+  jumping: false, ducking: false,
+  rollT: 0, airTime: 0, legPhase: 0
+};
+const GRAVITY = 2200;
+const JUMP_V = -780;
+
+let obstacles = [];
+let orbs = [];
+let particles = [];
+let speed = 280;
+let baseSpeed = 280;
+let distance = 0;
+let spawnTimer = 0.9;
+let orbTimer = 2.5;
+let groundOffset = 0;
+let lastTime = 0;
+let boostT = 0; // seconds of active score multiplier remaining
+
+function curH() { return player.ducking ? DUCK_H : STAND_H; }
+
+function reset() {
+  player.y = groundY; player.vy = 0;
+  player.jumping = false; player.ducking = false;
+  player.rollT = 0; player.airTime = 0; player.legPhase = 0;
+  obstacles = []; orbs = []; particles = [];
+  speed = baseSpeed; distance = 0;
+  spawnTimer = 0.9; orbTimer = 2.5;
+  groundOffset = 0; lastTime = 0; boostT = 0;
+  multEl.style.opacity = 0;
+}
+
+function jump() {
+  if (state === 'ready') { startScreen.style.display = 'none'; state = 'playing'; return; }
+  if (state === 'dead') return;
+  if (!player.jumping && !player.ducking) {
+    player.vy = JUMP_V; player.jumping = true; player.airTime = 0;
+  }
+}
+function duckStart() {
+  if (state === 'ready') { startScreen.style.display = 'none'; state = 'playing'; return; }
+  if (state === 'dead') return;
+  if (!player.jumping) player.ducking = true;
+}
+function duckEnd() {
+  if (player.ducking) { player.ducking = false; player.rollT = 0.0001; }
+}
+function restart() {
+  overlay.style.display = 'none';
+  shareMsg.style.opacity = 0;
+  reset();
+  state = 'playing';
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') { e.preventDefault(); jump(); }
+  if (e.code === 'ArrowDown' || e.code === 'KeyS') { e.preventDefault(); duckStart(); }
+});
+document.addEventListener('keyup', (e) => {
+  if (e.code === 'ArrowDown' || e.code === 'KeyS') duckEnd();
+});
+
+let touchStartY = null;
+canvas.addEventListener('pointerdown', (e) => { e.preventDefault(); touchStartY = e.clientY; jump(); });
+canvas.addEventListener('pointermove', (e) => {
+  if (touchStartY !== null && e.buttons) { if (e.clientY - touchStartY > 35) duckStart(); }
+});
+canvas.addEventListener('pointerup', () => { touchStartY = null; duckEnd(); });
+restartBtn.addEventListener('click', restart);
+
+shareBtn.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(window.location.href);
+  } catch (e) {
+    // fallback for older browsers / no clipboard permission
+    const ta = document.createElement('textarea');
+    ta.value = window.location.href;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+  shareMsg.style.opacity = 1;
+  setTimeout(() => { shareMsg.style.opacity = 0; }, 1600);
+});
+
+function spawnObstacle() {
+  const r = Math.random();
+  if (r < 0.4) {
+    const h = 30 + Math.random() * 22;
+    obstacles.push({ type: 'spike', x: W + 20, y: groundY - h, w: 24, h: h });
+  } else if (r < 0.72) {
+    const gw = 55 + Math.random() * 45;
+    obstacles.push({ type: 'gap', x: W + 20, w: gw });
+  } else {
+    obstacles.push({ type: 'bar', x: W + 20, w: 70, gapBottom: groundY - DUCK_H - 6, barH: 14 });
+  }
+}
+function spawnOrb() {
+  const high = Math.random() < 0.5;
+  const y = high ? groundY - 90 - Math.random() * 30 : groundY - 20;
+  orbs.push({ x: W + 20, y, r: 9, taken: false, pulse: Math.random() * 10 });
+}
+
+function update(dt) {
+  distance += speed * dt * 0.06 * (boostT > 0 ? 2 : 1);
+  speed = baseSpeed + distance * 0.9;
+  if (speed > 620) speed = 620;
+
+  if (boostT > 0) {
+    boostT -= dt;
+    if (boostT <= 0) { boostT = 0; multEl.style.opacity = 0; }
+  }
+
+  groundOffset = (groundOffset - speed * dt) % 40;
+
+  if (player.jumping) {
+    player.vy += GRAVITY * dt;
+    player.y += player.vy * dt;
+    player.airTime += dt;
+    if (player.y >= groundY) {
+      player.y = groundY; player.vy = 0; player.jumping = false;
+      if (player.airTime > 0.32) player.rollT = 0.0001;
+      player.airTime = 0;
+    }
+  } else {
+    player.legPhase += dt * (player.ducking ? 14 : 11) * (speed / baseSpeed);
+  }
+
+  if (player.rollT > 0) {
+    player.rollT += dt * 3.2;
+    if (player.rollT >= 1) player.rollT = 0;
+  }
+
+  spawnTimer -= dt;
+  if (spawnTimer <= 0) {
+    spawnObstacle();
+    const gap = Math.max(0.55, 1.15 - distance * 0.0008);
+    spawnTimer = gap + Math.random() * 0.5;
+  }
+  orbTimer -= dt;
+  if (orbTimer <= 0) {
+    spawnOrb();
+    orbTimer = 2.2 + Math.random() * 2.3;
+  }
+
+  const ph = curH();
+  const px1 = player.x - PW/2, px2 = player.x + PW/2;
+  const py1 = player.y - ph, py2 = player.y;
+
+  for (let i = obstacles.length - 1; i >= 0; i--) {
+    const o = obstacles[i];
+    o.x -= speed * dt;
+    if (o.type === 'spike') {
+      if (o.x + o.w < -20) { obstacles.splice(i,1); continue; }
+      const ox1 = o.x, ox2 = o.x + o.w, oy1 = o.y, oy2 = groundY + 4;
+      if (px2 > ox1 && px1 < ox2 && py2 > oy1 && py1 < oy2) die();
+    } else if (o.type === 'gap') {
+      if (o.x + o.w < -20) { obstacles.splice(i,1); continue; }
+      const overGap = px2 > o.x && px1 < o.x + o.w;
+      if (overGap && !player.jumping && player.y >= groundY) die();
+    } else if (o.type === 'bar') {
+      if (o.x + o.w < -20) { obstacles.splice(i,1); continue; }
+      const ox1 = o.x, ox2 = o.x + o.w;
+      const overlapsX = px2 > ox1 && px1 < ox2;
+      const tooTall = py1 < o.gapBottom;
+      if (overlapsX && tooTall) die();
+    }
+  }
+
+  for (let i = orbs.length - 1; i >= 0; i--) {
+    const orb = orbs[i];
+    orb.x -= speed * dt;
+    orb.pulse += dt * 6;
+    if (orb.x < -20) { orbs.splice(i,1); continue; }
+    if (!orb.taken) {
+      const dx = orb.x - player.x, dy = orb.y - (player.y - ph/2);
+      if (Math.sqrt(dx*dx + dy*dy) < orb.r + 16) {
+        orb.taken = true;
+        boostT = 5;
+        multEl.style.opacity = 1;
+        for (let k = 0; k < 10; k++) {
+          particles.push({ x: orb.x, y: orb.y, life: 0.4, vx: (Math.random()-0.5)*180, vy: (Math.random()-0.5)*180, amber: true });
+        }
+        orbs.splice(i,1);
+      }
+    }
+  }
+
+  if (!player.jumping && Math.random() < 0.5) {
+    particles.push({ x: player.x - PW/2, y: groundY, life: 0.35, vx: -speed*0.4 - 30, vy: 0 });
+  }
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx * dt; p.y += (p.vy||0) * dt; p.life -= dt;
+    if (p.life <= 0) particles.splice(i,1);
+  }
+
+  scoreEl.textContent = Math.floor(distance);
+}
+
+function die() {
+  state = 'dead';
+  const s = Math.floor(distance);
+  if (s > best) { best = s; localStorage.setItem('musabRunnerBest', best); }
+  bestEl.textContent = 'BEST ' + best;
+  finalScoreEl.textContent = 'Distance: ' + s + (s === best ? ' — new best' : '');
+  overlay.style.display = 'flex';
+}
+
+function drawGround() {
+  ctx.fillStyle = COL.panel;
+  ctx.fillRect(0, groundY + 4, W, H - groundY - 4);
+  ctx.strokeStyle = COL.amber;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(0, groundY + 4); ctx.lineTo(W, groundY + 4);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(217,142,43,0.18)';
+  ctx.lineWidth = 1;
+  for (let x = groundOffset; x < W; x += 40) {
+    ctx.beginPath(); ctx.moveTo(x, groundY + 4); ctx.lineTo(x - 10, H); ctx.stroke();
+  }
+}
+
+function drawPlayer() {
+  const hipY = player.y - (player.ducking ? 14 : 28);
+  ctx.save();
+  ctx.translate(player.x, hipY);
+  const color = boostT > 0 ? COL.amber : COL.bone;
+  ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 4; ctx.lineCap = 'round';
+
+  if (player.rollT > 0) {
+    const t = player.rollT, ang = t * Math.PI * 2.2;
+    ctx.translate(0, player.ducking ? 6 : 10); ctx.rotate(ang);
+    ctx.beginPath(); ctx.arc(0, 0, 14, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(10, -6); ctx.moveTo(0,0); ctx.lineTo(-9, 7); ctx.stroke();
+    ctx.restore(); return;
+  }
+
+  if (player.jumping) {
+    const lean = Math.max(-0.35, Math.min(0.35, player.vy / 1400));
+    ctx.rotate(lean);
+    ctx.beginPath(); ctx.arc(2, -34, 8, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(0, -26); ctx.lineTo(-2, -6); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, -22); ctx.lineTo(-14, -28); ctx.moveTo(0, -22); ctx.lineTo(13, -14); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-2, -6); ctx.lineTo(-12, 4); ctx.lineTo(-16, 2);
+    ctx.moveTo(-2, -6); ctx.lineTo(8, 2); ctx.lineTo(14, -4); ctx.stroke();
+  } else if (player.ducking) {
+    const wob = Math.sin(player.legPhase) * 2;
+    ctx.beginPath(); ctx.arc(8, -14 + wob*0.2, 7, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(2, -12); ctx.lineTo(-4, -2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(2, -10); ctx.lineTo(14, -16); ctx.moveTo(2, -10); ctx.lineTo(-10, -6); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-4, -2); ctx.lineTo(-14 + wob, 8); ctx.moveTo(-4, -2); ctx.lineTo(8 - wob, 8); ctx.stroke();
+  } else {
+    const ph = player.legPhase, bob = Math.abs(Math.sin(ph)) * 3;
+    const legA = Math.sin(ph) * 16, legB = Math.sin(ph + Math.PI) * 16;
+    const armA = Math.sin(ph + Math.PI) * 12, armB = Math.sin(ph) * 12;
+    const hipOff = -bob;
+    ctx.beginPath(); ctx.arc(0, -44 + hipOff, 8, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(0, -36 + hipOff); ctx.lineTo(0, -10 + hipOff); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, -30 + hipOff); ctx.lineTo(armA*0.8, -16 + hipOff);
+    ctx.moveTo(0, -30 + hipOff); ctx.lineTo(armB*0.8, -16 + hipOff); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, -10 + hipOff); ctx.lineTo(legA, 10);
+    ctx.moveTo(0, -10 + hipOff); ctx.lineTo(legB, 10); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawObstacles() {
+  for (const o of obstacles) {
+    if (o.type === 'spike') {
+      ctx.fillStyle = '#b23a3a';
+      ctx.beginPath();
+      ctx.moveTo(o.x, groundY + 4); ctx.lineTo(o.x + o.w/2, o.y); ctx.lineTo(o.x + o.w, groundY + 4);
+      ctx.closePath(); ctx.fill();
+    } else if (o.type === 'gap') {
+      ctx.fillStyle = COL.ink;
+      ctx.fillRect(o.x, groundY + 4, o.w, H - groundY);
+    } else if (o.type === 'bar') {
+      ctx.fillStyle = COL.grey;
+      const barTop = o.gapBottom - o.barH;
+      ctx.fillRect(o.x, barTop, o.w, o.barH);
+      ctx.fillStyle = 'rgba(107,111,118,0.35)';
+      ctx.fillRect(o.x + 4, barTop, 4, o.gapBottom - barTop + 30);
+      ctx.fillRect(o.x + o.w - 8, barTop, 4, o.gapBottom - barTop + 30);
+    }
+  }
+}
+
+function drawOrbs() {
+  for (const o of orbs) {
+    const pulse = Math.sin(o.pulse) * 2;
+    ctx.save();
+    ctx.shadowColor = COL.amber; ctx.shadowBlur = 12;
+    ctx.fillStyle = COL.amber;
+    ctx.beginPath(); ctx.arc(o.x, o.y, o.r + pulse * 0.3, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawParticles() {
+  for (const p of particles) {
+    ctx.globalAlpha = Math.max(0, p.life / 0.4);
+    ctx.fillStyle = p.amber ? COL.amber : COL.grey;
+    ctx.fillRect(p.x, p.y, 3, 3);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  drawGround();
+  drawParticles();
+  drawOrbs();
+  drawObstacles();
+  drawPlayer();
+}
+
+function loop(ts) {
+  if (!lastTime) lastTime = ts;
+  let dt = (ts - lastTime) / 1000;
+  lastTime = ts;
+  if (dt > 0.05) dt = 0.05;
+  if (state === 'playing') update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+
+reset();
+draw();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
